@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PRIVATE JOBS INDIA | Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fb;color:#172033;font-family:Arial,sans-serif}header{background:#102b50;color:white;padding:18px}h1{font-size:20px;margin:0}header p{font-size:13px;color:#d7e5f5;margin:6px 0 0}main{max-width:900px;margin:24px auto;padding:0 14px}.card{background:white;border:1px solid #e1e6ef;border-radius:14px;padding:18px;margin-bottom:16px}h2{font-size:18px;margin:0 0 14px}.muted{color:#667085;font-size:13px;line-height:1.5}label{display:block;font-size:13px;font-weight:bold;margin:12px 0 6px}input{width:100%;padding:13px;border:1px solid #cbd5e1;border-radius:9px;font-size:16px}button{border:0;border-radius:9px;padding:12px 16px;background:#1456a0;color:white;font-weight:bold;cursor:pointer}.secondary{background:#e8eef7;color:#17365d}.danger{background:#a52a2a}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.hidden{display:none!important}.notice{padding:11px;border-radius:8px;background:#eef5ff;color:#17365d;font-size:13px;margin-top:12px;white-space:pre-wrap}.error{background:#fff0f0;color:#8c2020}.job{border:1px solid #e4e8ef;border-radius:10px;padding:14px;margin:12px 0}.job h3{margin:0 0 7px;font-size:16px}.job p{margin:5px 0;color:#526071;font-size:13px;overflow-wrap:anywhere}.pill{display:inline-block;background:#fff2cc;color:#805b00;border-radius:20px;padding:4px 9px;font-size:11px;font-weight:bold}footer{text-align:center;color:#7b8493;font-size:12px;padding:20px}
+</style></head>
+<body>
+<header><h1>PRIVATE JOBS INDIA</h1><p>Secure administrator portal</p></header>
+<main>
+<section class="card" id="setup"><h2>Connect your Supabase project</h2>
+<p class="muted">Enter your Project URL and Publishable Key. Never enter a Secret key or service_role key here.</p>
+<label for="projectUrl">Supabase Project URL</label><input id="projectUrl" type="url" placeholder="https://your-project.supabase.co">
+<label for="publishableKey">Supabase Publishable Key</label><input id="publishableKey" type="text" placeholder="sb_publishable_..." autocomplete="off">
+<div class="actions"><button id="connectBtn">Connect</button></div>
+<div id="setupMsg" class="notice">Values are used only to connect this page to your Supabase project.</div></section>
+<section class="card hidden" id="login"><h2>Admin Login</h2><p class="muted">Use the email and password created in Supabase Authentication → Users.</p>
+<label for="email">Email</label><input id="email" type="email" autocomplete="username">
+<label for="password">Password</label><input id="password" type="password" autocomplete="current-password">
+<div class="actions"><button id="loginBtn">Sign in</button></div><div id="loginMsg" class="notice hidden"></div></section>
+<section class="card hidden" id="dashboard"><div class="actions" style="justify-content:space-between;align-items:center;margin-top:0"><div><h2 style="margin-bottom:4px">Admin Dashboard</h2><div class="muted" id="adminEmail"></div></div><button class="secondary" id="logoutBtn">Log out</button></div>
+<div class="actions"><button id="refreshBtn">Refresh jobs</button></div><div id="dashMsg" class="notice">Loading jobs…</div><div id="jobs"></div></section>
+</main><footer>PRIVATE JOBS INDIA · Admin access only</footer>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+let supabase=null;const $=id=>document.getElementById(id);
+const show=(id,yes=true)=>$(id).classList.toggle('hidden',!yes);
+const message=(id,text,error=false)=>{$(id).textContent=text;$(id).classList.remove('hidden','error');if(error)$(id).classList.add('error');};
+$('connectBtn').addEventListener('click',async()=>{
+ const url=$('projectUrl').value.trim(),key=$('publishableKey').value.trim();
+ if(!url.startsWith('https://')||!key){message('setupMsg','Enter a valid Project URL and Publishable Key.',true);return;}
+ try{supabase=createClient(url,key);const {data:{session},error}=await supabase.auth.getSession();if(error)throw error;show('login',!session);show('dashboard',!!session);message('setupMsg','Connected to Supabase.');if(session)await verifyAdminAndLoad();}
+ catch(e){message('setupMsg',e.message||'Connection failed.',true);}
+});
+$('loginBtn').addEventListener('click',async()=>{
+ if(!supabase)return;const {error}=await supabase.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
+ if(error){message('loginMsg',error.message,true);return;}await verifyAdminAndLoad();
+});
+async function verifyAdminAndLoad(){
+ const {data:{user}}=await supabase.auth.getUser();if(!user){show('login');show('dashboard',false);return;}
+ const {data:row,error}=await supabase.from('user_roles').select('role').eq('user_id',user.id).maybeSingle();
+ if(error){await supabase.auth.signOut();show('dashboard',false);show('login');message('loginMsg','Could not verify admin role: '+error.message,true);return;}
+ if(row?.role!=='admin'){await supabase.auth.signOut();show('dashboard',false);show('login');message('loginMsg','Access denied: this account is not an admin.',true);return;}
+ show('login',false);show('dashboard');$('adminEmail').textContent=user.email||'Admin';await loadJobs();
+}
+async function loadJobs(){
+ message('dashMsg','Loading jobs…');const {data,error}=await supabase.from('jobs').select('id,title,location,salary,job_type,description,apply_url,status,created_at').order('created_at',{ascending:false}).limit(100);
+ if(error){message('dashMsg','Could not load jobs: '+error.message,true);return;}
+ $('jobs').innerHTML='';if(!data?.length){message('dashMsg','No job listings yet.');return;}message('dashMsg',`${data.length} job(s) loaded.`);
+ const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ for(const job of data){const el=document.createElement('article');el.className='job';el.innerHTML=`<h3>${safe(job.title)}</h3><p>${safe(job.location)} · ${safe(job.salary)} · ${safe(job.job_type)}</p><p>${safe(job.description)}</p><p>Status: <span class="pill">${safe(job.status)}</span></p><p>Apply URL: ${safe(job.apply_url)}</p><div class="actions"></div>`;const a=el.querySelector('.actions');
+ if(job.status!=='approved'){const b=document.createElement('button');b.textContent='Approve';b.onclick=()=>setStatus(job.id,'approved');a.append(b);}
+ if(job.status!=='rejected'){const b=document.createElement('button');b.textContent='Reject';b.className='danger';b.onclick=()=>setStatus(job.id,'rejected');a.append(b);}
+ $('jobs').append(el);}
+}
+async function setStatus(id,status){const {error}=await supabase.from('jobs').update({status}).eq('id',id);if(error){message('dashMsg','Update failed: '+error.message,true);return;}await loadJobs();}
+$('refreshBtn').addEventListener('click',loadJobs);
+$('logoutBtn').addEventListener('click',async()=>{await supabase.auth.signOut();show('dashboard',false);show('login');});
+</script></body></html>
